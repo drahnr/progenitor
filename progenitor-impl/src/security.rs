@@ -91,8 +91,12 @@ impl<'a> SecuritySchemeAuthenticator<'a> {
         } = self;
 
         match self.scheme {
-            SecurityScheme::APIKey { .. } => {
-                unimplemented!("APIKey security schemes are not supported")
+            SecurityScheme::APIKey { location, description, name } => {
+                Ok(quote! { 
+                    pub struct #base_struct_ident {
+                        api_key: String,
+                    }
+                })
             }
             SecurityScheme::HTTP { scheme, .. } => match scheme.as_str() {
                 "bearer" => Ok(quote! {
@@ -209,7 +213,11 @@ impl<'a> SecuritySchemeAuthenticator<'a> {
 
         match self.scheme {
             SecurityScheme::APIKey { .. } => {
-                unimplemented!("APIKey security schemes are not supported")
+                Ok(quote! {
+                    pub fn new(api_key: String) -> Self {
+                        Self { api_key }
+                    }
+                })
             }
             SecurityScheme::HTTP { scheme, .. } => match scheme.as_str() {
                 "bearer" => Ok(quote! {
@@ -541,7 +549,28 @@ impl<'a> SecuritySchemeAuthenticator<'a> {
     fn generate_apply(&self) -> Result<TokenStream> {
         match self.scheme {
             SecurityScheme::APIKey { .. } => {
-                unimplemented!("APIKey security schemes are not supported")
+                Ok(quote!(
+                    pub(crate) async fn apply(
+                        &self,
+                        mut req: reqwest::Request,
+                    ) -> Result<reqwest::Request, Error> {
+                        let headers = req.headers_mut();
+                        headers.insert(
+                            reqwest::header::AUTHORIZATION,
+                            reqwest::header::HeaderValue::from_str(&self.bearer_token)
+                            ).map_err(|err| {
+                                Error::InvalidRequest(
+                                    format!(
+                                        "Failed to construct api key header due to {:?}",
+                                        err
+                                    )
+                                )
+                            })?
+                        ;
+
+                        Ok(req)
+                    }
+                ))
             }
             SecurityScheme::HTTP { scheme, .. } => match scheme.as_str() {
                 "bearer" => Ok(quote!(

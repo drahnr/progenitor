@@ -2,13 +2,16 @@
 
 use std::collections::{HashMap, HashSet};
 
-use openapiv3::OpenAPI;
+use indexmap::IndexMap;
+use openapiv3::{OpenAPI, SecurityRequirement, SecurityScheme};
 use proc_macro2::TokenStream;
 use quote::quote;
 use security::SecurityRequirements;
 use serde::Deserialize;
+use template::PathTemplate;
 use thiserror::Error;
 use typify::{TypeSpace, TypeSpaceSettings};
+use util::ReferenceOrExt;
 
 use crate::{
     security::SecuritySchemeAuthenticator, to_schema::ToSchema,
@@ -142,6 +145,53 @@ impl Default for Generator {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct Security {
+    pub(crate) per_path: IndexMap<String, SecurityRequirement>, 
+    /// The global available security requirements, the defaults, named, which must be ref'd by overrides
+    pub(crate) global: Vec<SecurityRequirement>,
+    /// Declares the scheme and which header to use, each one referenced above must exist in the below
+    pub(crate) schemes: IndexMap<String, SecurityScheme>,
+}
+
+// usuful to derive the global fallback, if any
+impl Security {
+    pub(crate) fn resolve_for_path(&self, path: &PathTemplate) -> Option<SecurityScheme> {
+        let path = path.to_string();
+        let requirements = self.per_path.get(&path).cloned().or_else(|| { self.global.first().cloned() })?;
+        let mut schemes = 
+            requirements
+                .iter()
+                .map(|(name,requirements)| {
+                    self.schemes
+                        .get(name)
+                        .expect("Contains that name, otherwise spec is buggy. qed")
+                });
+        // TODO let's start with exactly one or zero schemes
+        assert!(schemes.len() <= 1);
+        schemes.next().cloned()
+    }
+
+    pub(crate) fn from(spec: &OpenAPI) -> Self {
+        Self {
+            per_path: Default::default(), // TODO
+            global: spec.security.clone().unwrap_or_default(),
+            schemes: spec.components.as_ref().map(|c| {
+                IndexMap::from_iter(
+                    c.security_schemes
+                        .iter()
+                        .map(|(key, reference_or_sec_scheme)| {
+                            (
+                                key.to_owned(),
+                                ReferenceOrExt::item(reference_or_sec_scheme, &spec.components).cloned().expect("Spec was checked for validity, so this must work. qed")
+                            )
+                        })
+                )
+            }).unwrap_or_default(),
+        }
+    }
+}
+
 impl Generator {
     pub fn new(settings: &GenerationSettings) -> Self {
         let mut type_settings = TypeSpaceSettings::default();
@@ -162,8 +212,11 @@ impl Generator {
         }
     }
 
+    /// Generate the actual rust implementation from the specification
     pub fn generate_tokens(&mut self, spec: &OpenAPI) -> Result<TokenStream> {
         validate_openapi(spec)?;
+
+        let security = Security::from(&spec);
 
         // Convert our components dictionary to schemars
         let schemas = spec
@@ -175,10 +228,6 @@ impl Generator {
                 })
             })
             .collect::<Vec<(String, _)>>();
-
-        // Construct the list of global security requirements
-        let global_security_requirements: Option<SecurityRequirements> =
-            spec.security.as_ref().map(|req| req.into());
 
         // Construct a list of security schemes. Given a valid spec file, elements in this list are
         // uniquely identified by their name
@@ -219,6 +268,7 @@ impl Generator {
                     path,
                     method,
                     &global_security_requirements,
+                    path_parameters,
                 )
             })
             .collect::<Result<Vec<_>>>()?;
@@ -471,7 +521,7 @@ impl Generator {
             .collect::<Result<Vec<_>>>()?;
         let out = quote! {
             impl Client {
-                #(#methods)*
+                #( #methods )*
             }
 
             pub mod prelude {

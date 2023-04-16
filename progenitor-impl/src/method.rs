@@ -6,18 +6,20 @@ use std::{
     str::FromStr,
 };
 
-use openapiv3::{Components, Response, StatusCode};
+use indexmap::IndexSet;
+use openapiv3::{Components, Parameter, ReferenceOr, Response, StatusCode, OpenAPI, APIKeyLocation, SecurityScheme};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote, ToTokens};
-use typify::TypeId;
+use typify::{TypeId, TypeSpace};
 
 use crate::{
     security::SecurityRequirements,
     template::PathTemplate,
-    util::{sanitize, Case},
-    Error, Generator, Result, TagStyle,
+    util::{items, parameter_map, sanitize, Case},
+    Error, Generator, Result, TagStyle, Security,
 };
 use crate::{to_schema::ToSchema, util::ReferenceOrExt};
+
 
 /// The intermediate representation of an operation that will become a method.
 pub(crate) struct OperationMethod {
@@ -25,9 +27,10 @@ pub(crate) struct OperationMethod {
     pub tags: Vec<String>,
     method: HttpMethod,
     path: PathTemplate,
-    summary: Option<String>,
-    description: Option<String>,
-    params: Vec<OperationParameter>,
+    pub security: Security,
+    pub summary: Option<String>,
+    pub description: Option<String>,
+    pub params: Vec<OperationParameter>,
     responses: Vec<OperationResponse>,
     security: Option<SecurityRequirements>,
     dropshot_paginated: Option<DropshotPagination>,
@@ -224,6 +227,13 @@ impl PartialOrd for OperationResponseStatus {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub(crate) enum OperationResponseFormat {
+    Json,
+    XML,
+    // TODO more
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 enum OperationResponseType {
     Type(TypeId),
@@ -239,7 +249,8 @@ impl Generator {
         components: &Option<Components>,
         path: &str,
         method: &str,
-        global_security_requirements: &Option<SecurityRequirements>,
+        security: &Security,
+        path_parameters: &[ReferenceOr<Parameter>],
     ) -> Result<OperationMethod> {
         let operation_id = operation.operation_id.as_ref().unwrap();
 
@@ -502,9 +513,9 @@ impl Generator {
                 .description
                 .clone()
                 .filter(|s| !s.is_empty()),
-            params,
             responses,
             security: security_requirements,
+            params,
             dropshot_paginated,
             dropshot_websocket,
         })
@@ -711,7 +722,7 @@ impl Generator {
         client: TokenStream,
     ) -> Result<MethodSigBody> {
         // Generate code for query parameters.
-        let query_items = method
+        let query_items = Vec::from_iter(method
             .params
             .iter()
             .filter_map(|param| match &param.kind {
@@ -731,8 +742,8 @@ impl Generator {
                     })
                 }
                 _ => None,
-            })
-            .collect::<Vec<_>>();
+            }));
+
         let (query_build, query_use) = if query_items.is_empty() {
             (quote! {}, quote! {})
         } else {
@@ -816,7 +827,7 @@ impl Generator {
         // ... and there can be at most one body.
         assert!(body_func.clone().count() <= 1);
 
-        let (success_response_items, response_type) = self.extract_responses(
+        let (success_response_items, response_type, response_format) = self.extract_responses(
             method,
             OperationResponseStatus::is_success_or_default,
         );
@@ -1014,11 +1025,11 @@ impl Generator {
 
             #pre_hook
             let result = #client.client
-                .execute(request)
+                .execute(dbg!(request))
                 .await;
             #post_hook
 
-            let response = result?;
+            let response = dbg!(result?);
 
             match response.status().as_u16() {
                 // These will be of the form...
@@ -1108,24 +1119,9 @@ impl Generator {
         let response_type = response_types
             .iter()
             .next()
-            .map(|typ| match typ {
-                OperationResponseType::Type(type_id) => {
-                    let type_name =
-                        self.type_space.get_type(type_id).unwrap().ident();
-                    quote! { #type_name }
-                }
-                OperationResponseType::None => {
-                    quote! { () }
-                }
-                OperationResponseType::Raw => {
-                    quote! { ByteStream }
-                }
-                OperationResponseType::Upgrade => {
-                    quote! { reqwest::Upgraded }
-                }
-            })
-            // TODO should this be a bytestream?
-            .unwrap_or_else(|| quote! { () });
+            // TODO should this be OperationResponseType::Raw?
+            .unwrap_or(OperationResponseType::None);
+
         (response_items, response_type)
     }
 
