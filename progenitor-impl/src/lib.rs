@@ -147,6 +147,7 @@ impl Default for Generator {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Security {
+    /// Maps a path to a given security requirement. If none is present, falls back to the global one. An empty one resets the global security context.
     pub(crate) per_path: IndexMap<String, SecurityRequirement>, 
     /// The global available security requirements, the defaults, named, which must be ref'd by overrides
     pub(crate) global: Vec<SecurityRequirement>,
@@ -173,8 +174,17 @@ impl Security {
     }
 
     pub(crate) fn from(spec: &OpenAPI) -> Self {
+        let per_path = IndexMap::from_iter(
+            spec.operations().filter_map(|(path, method, ops)| {
+                ops.security.clone().map(|mut securities_for_path| {
+                    assert!(securities_for_path.len() <= 1); // 0 discards the global security requirements, so inserting an empty vec represents that
+                    securities_for_path.pop().map(|sec| (path.to_owned(), sec))
+                }).flatten()
+            })
+        );
+
         Self {
-            per_path: Default::default(), // TODO
+            per_path,
             global: spec.security.clone().unwrap_or_default(),
             schemes: spec.components.as_ref().map(|c| {
                 IndexMap::from_iter(

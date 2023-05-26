@@ -1115,7 +1115,7 @@ impl Generator {
 
         // TODO to deal with multiple response types, we'll need to create an
         // enum type with variants for each of the response types.
-        assert!(response_types.len() <= 1);
+        assert!(response_types.len() <= 1, "Response types are: {response_types:?}");
         let response_type = response_types
             .iter()
             .next()
