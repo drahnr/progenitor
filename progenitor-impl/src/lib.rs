@@ -425,15 +425,14 @@ impl Generator {
                 if meta.is_binary {
                     // Binary fields become FormPart::Binary.
                     Some(quote! {
-                        if let Some(ref val) = self.#ident {
-                            parts.push((#api_name, progenitor_client::FormPart::Binary(
-                                progenitor_client::BinaryFormPart {
-                                    data: val.clone().into(),
-                                    filename: None,
-                                    content_type: #content_type,
-                                }
-                            )));
-                        }
+                        let val = &self.#ident;
+                        parts.push((#api_name, progenitor_client::FormPart::Binary(
+                            progenitor_client::BinaryFormPart {
+                                data: val.clone().into(),
+                                filename: None,
+                                content_type: #content_type,
+                            }
+                        )));
                     })
                 } else if meta.needs_json {
                     // Complex types (array/object): JSON serialize

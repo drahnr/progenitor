@@ -70,16 +70,15 @@ pub mod types {
         /// suitable for `multipart/form-data` encoding.
         pub fn as_form(&self) -> Vec<(&'static str, progenitor_client::FormPart)> {
             let mut parts = Vec::new();
-            if let Some(ref val) = self.file {
-                parts.push((
-                    "file",
-                    progenitor_client::FormPart::Binary(progenitor_client::BinaryFormPart {
-                        data: val.clone().into(),
-                        filename: None,
-                        content_type: None,
-                    }),
-                ));
-            }
+            let val = &self.file;
+            parts.push((
+                "file",
+                progenitor_client::FormPart::Binary(progenitor_client::BinaryFormPart {
+                    data: val.clone().into(),
+                    filename: None,
+                    content_type: None,
+                }),
+            ));
             if let Some(ref val) = self.name {
                 parts.push((
                     "name",
