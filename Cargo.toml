@@ -26,7 +26,7 @@ progenitor-macro = { version = "0.14.0", path = "progenitor-macro" }
 anyhow = "1.0.102"
 assert_cmd = "2.2.2"
 base64 = "0.22.1"
-bytes = "1.11.1"
+bytes = { version = "1.11.1", features = ["serde"] }
 chrono = { version = "0.4.44", default-features = false, features = ["serde"] }
 clap = { version = "4.6.1" }
 clap-cargo = "0.18.3"
@@ -63,8 +63,8 @@ unicode-ident = "1.0.24"
 uuid = { version = "1.23.2", features = ["serde", "v4"] }
 assert_matches = "1.5.0"
 
-#[patch.crates-io]
-#typify = { path = "../typify/typify" }
+[patch.crates-io]
+typify-impl = { path = "vendor/typify-impl" }
 
 #[patch.crates-io]
 #serde_tokenstream = { path = "../serde_tokenstream" }

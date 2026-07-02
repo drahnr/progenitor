@@ -60,7 +60,7 @@ pub mod types {
     /// </details>
     #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
     pub struct UploadForm {
-        pub file: ::std::string::String,
+        pub file: ::bytes::Bytes,
         pub name: ::std::string::String,
     }
 

@@ -62,7 +62,7 @@ pub mod types {
         :: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, schemars :: JsonSchema,
     )]
     pub struct UploadForm {
-        pub file: ::std::string::String,
+        pub file: ::bytes::Bytes,
         pub name: ::std::string::String,
     }
 
@@ -76,7 +76,7 @@ pub mod types {
     pub mod builder {
         #[derive(Clone, Debug)]
         pub struct UploadForm {
-            file: ::std::result::Result<::std::string::String, ::std::string::String>,
+            file: ::std::result::Result<::bytes::Bytes, ::std::string::String>,
             name: ::std::result::Result<::std::string::String, ::std::string::String>,
         }
 
@@ -92,7 +92,7 @@ pub mod types {
         impl UploadForm {
             pub fn file<T>(mut self, value: T) -> Self
             where
-                T: ::std::convert::TryInto<::std::string::String>,
+                T: ::std::convert::TryInto<::bytes::Bytes>,
                 T::Error: ::std::fmt::Display,
             {
                 self.file = value

@@ -551,7 +551,9 @@ mod multipart_tests {
                 "file": binary_file_prop()
             }),
         );
-        assert_generates_ok(&spec, "Binary-only multipart should be supported");
+        let code = assert_generates_ok(&spec, "Binary-only multipart should be supported");
+        assert!(code.contains("bytes :: Bytes"));
+        assert!(!code.contains("pub file : :: std :: string :: String"));
     }
 
     #[test]
@@ -888,7 +890,9 @@ mod multipart_tests {
             "Multipart should work with positional interface: {:?}",
             result.err()
         );
-        assert!(result.unwrap().to_string().contains("UploadFileForm"));
+        let code = result.unwrap().to_string();
+        assert!(code.contains("UploadFileForm"));
+        assert!(code.contains("bytes :: Bytes"));
     }
 
     #[test]
