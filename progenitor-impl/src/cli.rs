@@ -440,7 +440,7 @@ impl Generator {
             args.add_arg(arg_name, CliArg { parser, consumer })
         }
 
-        let maybe_body_type_id = method
+        let maybe_body_info = method
             .params
             .iter()
             .find(|param| matches!(&param.kind, OperationParameterKind::Body(_)))
@@ -450,11 +450,13 @@ impl Generator {
                 // are currently...
                 OperationParameterType::RawBody => None,
 
-                OperationParameterType::Type(body_type_id)
-                | OperationParameterType::Form(body_type_id) => Some(body_type_id),
+                OperationParameterType::Type(body_type_id) => Some((body_type_id, None)),
+                OperationParameterType::Form(body_type_id) => {
+                    Some((body_type_id, self.forms.get(body_type_id)))
+                }
             });
 
-        if let Some(body_type_id) = maybe_body_type_id {
+        if let Some((body_type_id, form_fields)) = maybe_body_info {
             args.body_present();
             let body_type = self.type_space.get_type(body_type_id).unwrap();
             let details = body_type.details();
@@ -462,7 +464,10 @@ impl Generator {
             match details {
                 typify::TypeDetails::Struct(struct_info) => {
                     for prop_info in struct_info.properties_info() {
-                        self.cli_method_body_arg(&mut args, prop_info)
+                        let is_binary = form_fields
+                            .and_then(|fields| fields.fields.get(prop_info.name))
+                            .is_some_and(|field| field.is_binary);
+                        self.cli_method_body_arg(&mut args, prop_info, is_binary)
                     }
                 }
 
@@ -514,7 +519,7 @@ impl Generator {
 
         let consumer_args = args.args.values().map(|CliArg { consumer, .. }| consumer);
 
-        let body_json_consumer = maybe_body_type_id.map(|body_type_id| {
+        let body_json_consumer = maybe_body_info.map(|(body_type_id, _)| {
             let body_type = self.type_space.get_type(body_type_id).unwrap();
             let body_type_ident = body_type.ident();
             quote! {
@@ -542,7 +547,12 @@ impl Generator {
         CliArg { parser, consumer }
     }
 
-    fn cli_method_body_arg(&self, args: &mut CliOperationArgs, prop_info: TypeStructPropInfo<'_>) {
+    fn cli_method_body_arg(
+        &self,
+        args: &mut CliOperationArgs,
+        prop_info: TypeStructPropInfo<'_>,
+        is_binary: bool,
+    ) {
         let TypeStructPropInfo {
             name,
             description,
@@ -574,35 +584,82 @@ impl Generator {
             prop_type
         };
 
-        let scalar = prop_type.has_impl(TypeSpaceImpl::FromStr);
+        let cli_arg_kind = if is_binary {
+            Some(CliBodyArgKind::BinaryFile)
+        } else if prop_type.has_impl(TypeSpaceImpl::FromStr) {
+            Some(CliBodyArgKind::Scalar)
+        } else {
+            None
+        };
 
         let prop_name = name.to_kebab_case();
-        if scalar && !args.has_arg(&prop_name) {
+        if let Some(cli_arg_kind) = cli_arg_kind.filter(|_| !args.has_arg(&prop_name)) {
             let volitionality = if required {
                 Volitionality::RequiredIfNoBody
             } else {
                 Volitionality::Optional
             };
-            let parser = clap_arg(
-                &prop_name,
-                volitionality,
-                &description.map(str::to_string),
-                &prop_type,
-            );
+            let parser = if matches!(cli_arg_kind, CliBodyArgKind::BinaryFile) {
+                let help = description.as_ref().map(|description| {
+                    quote! {
+                        .help(#description)
+                    }
+                });
+                let required = match volitionality {
+                    Volitionality::Optional => quote! { .required(false) },
+                    Volitionality::Required => quote! { .required(true) },
+                    Volitionality::RequiredIfNoBody => {
+                        quote! { .required_unless_present("json-body") }
+                    }
+                };
+                quote! {
+                    ::clap::Arg::new(#prop_name)
+                        .long(#prop_name)
+                        .value_name("FILE")
+                        .value_parser(::clap::value_parser!(std::path::PathBuf))
+                        #required
+                        #help
+                }
+            } else {
+                clap_arg(
+                    &prop_name,
+                    volitionality,
+                    &description.map(str::to_string),
+                    &prop_type,
+                )
+            };
 
             let prop_fn = format_ident!("{}", sanitize(name, Case::Snake));
             let prop_type_ident = prop_type.ident();
-            let consumer = quote! {
-                if let Some(value) =
-                    matches.get_one::<#prop_type_ident>(
-                        #prop_name,
-                    )
-                {
-                    // clone here in case the arg type
-                    // doesn't impl TryFrom<&T>
-                    request = request.body_map(|body| {
-                        body.#prop_fn(value.clone())
-                    })
+            let consumer = if matches!(cli_arg_kind, CliBodyArgKind::BinaryFile) {
+                quote! {
+                    if let Some(value) =
+                        matches.get_one::<std::path::PathBuf>(
+                            #prop_name,
+                        )
+                    {
+                        let value = ::bytes::Bytes::from(
+                            std::fs::read(value)
+                                .with_context(|| format!("failed to read {}", value.display()))?
+                        );
+                        request = request.body_map(|body| {
+                            body.#prop_fn(value.clone())
+                        })
+                    }
+                }
+            } else {
+                quote! {
+                    if let Some(value) =
+                        matches.get_one::<#prop_type_ident>(
+                            #prop_name,
+                        )
+                    {
+                        // clone here in case the arg type
+                        // doesn't impl TryFrom<&T>
+                        request = request.body_map(|body| {
+                            body.#prop_fn(value.clone())
+                        })
+                    }
                 }
             };
             args.add_arg(prop_name, CliArg { parser, consumer })
@@ -627,6 +684,11 @@ enum Volitionality {
     Optional,
     Required,
     RequiredIfNoBody,
+}
+
+enum CliBodyArgKind {
+    Scalar,
+    BinaryFile,
 }
 
 fn clap_arg(

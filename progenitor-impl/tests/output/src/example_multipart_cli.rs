@@ -19,6 +19,13 @@ impl<T: CliConfig> Cli<T> {
     pub fn cli_upload() -> ::clap::Command {
         ::clap::Command::new("")
             .arg(
+                ::clap::Arg::new("file")
+                    .long("file")
+                    .value_name("FILE")
+                    .value_parser(::clap::value_parser!(std::path::PathBuf))
+                    .required_unless_present("json-body"),
+            )
+            .arg(
                 ::clap::Arg::new("name")
                     .long("name")
                     .value_parser(::clap::value_parser!(::std::string::String))
@@ -28,7 +35,7 @@ impl<T: CliConfig> Cli<T> {
                 ::clap::Arg::new("json-body")
                     .long("json-body")
                     .value_name("JSON-FILE")
-                    .required(true)
+                    .required(false)
                     .value_parser(::clap::value_parser!(std::path::PathBuf))
                     .help("Path to a file that contains the full json body."),
             )
@@ -52,6 +59,14 @@ impl<T: CliConfig> Cli<T> {
 
     pub async fn execute_upload(&self, matches: &::clap::ArgMatches) -> anyhow::Result<()> {
         let mut request = self.client.upload();
+        if let Some(value) = matches.get_one::<std::path::PathBuf>("file") {
+            let value = ::bytes::Bytes::from(
+                std::fs::read(value)
+                    .with_context(|| format!("failed to read {}", value.display()))?,
+            );
+            request = request.body_map(|body| body.file(value.clone()))
+        }
+
         if let Some(value) = matches.get_one::<::std::string::String>("name") {
             request = request.body_map(|body| body.name(value.clone()))
         }

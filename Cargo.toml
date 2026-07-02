@@ -64,7 +64,7 @@ uuid = { version = "1.23.2", features = ["serde", "v4"] }
 assert_matches = "1.5.0"
 
 [patch.crates-io]
-typify-impl = { path = "vendor/typify-impl" }
+typify-impl = { git = "file:///media/humpback/projects/oxidecomputers/typify", branch = "main" }
 
 #[patch.crates-io]
 #serde_tokenstream = { path = "../serde_tokenstream" }
