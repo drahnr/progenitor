@@ -3056,7 +3056,7 @@ dependencies = [
 [[package]]
 name = "typify-impl"
 version = "0.7.0"
-source = "git+file:///media/humpback/projects/oxidecomputers/typify?branch=main#de538fa6c5e49f631178dbc9f10db3d8b7312e54"
+source = "git+ssh://git@github.com/drahnr/typify?branch=once-again#de538fa6c5e49f631178dbc9f10db3d8b7312e54"
 dependencies = [
  "bytes",
  "heck",
