@@ -442,27 +442,25 @@ impl Generator {
                         quote! { Some(progenitor_client::ContentType::json()) }
                     };
                     Some(quote! {
-                        if let Some(ref val) = self.#ident {
-                            parts.push((#api_name, progenitor_client::FormPart::Text(
+                        let val = &self.#ident;
+                        parts.push((#api_name, progenitor_client::FormPart::Text(
                                 progenitor_client::TextFormPart {
                                     value: serde_json::to_string(val)
                                         .expect("multipart form field serialization should not fail"),
                                     content_type: #json_content_type,
                                 }
                             )));
-                        }
                     })
                 } else {
                     // Simple text fields: serialize to string
                     Some(quote! {
-                        if let Some(ref val) = self.#ident {
-                            parts.push((#api_name, progenitor_client::FormPart::Text(
-                                progenitor_client::TextFormPart {
-                                    value: val.to_string(),
-                                    content_type: #content_type,
-                                }
-                            )));
-                        }
+                        let val = &self.#ident;
+                        parts.push((#api_name, progenitor_client::FormPart::Text(
+                            progenitor_client::TextFormPart {
+                                value: val.to_string(),
+                                content_type: #content_type,
+                            }
+                        )));
                     })
                 }
             });

@@ -147,15 +147,14 @@ pub mod types {
                     content_type: None,
                 }),
             ));
-            if let Some(ref val) = self.name {
-                parts.push((
-                    "name",
-                    progenitor_client::FormPart::Text(progenitor_client::TextFormPart {
-                        value: val.to_string(),
-                        content_type: None,
-                    }),
-                ));
-            }
+            let val = &self.name;
+            parts.push((
+                "name",
+                progenitor_client::FormPart::Text(progenitor_client::TextFormPart {
+                    value: val.to_string(),
+                    content_type: None,
+                }),
+            ));
             parts
         }
     }
