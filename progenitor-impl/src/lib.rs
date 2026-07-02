@@ -423,8 +423,7 @@ impl Generator {
                     .unwrap_or_else(|| quote! { None });
 
                 if meta.is_binary {
-                    // Binary fields: Option<bytes::Bytes> -> FormPart::Binary
-                    // Use .into() to support custom binary types via with_conversion
+                    // Binary fields become FormPart::Binary.
                     Some(quote! {
                         if let Some(ref val) = self.#ident {
                             parts.push((#api_name, progenitor_client::FormPart::Binary(

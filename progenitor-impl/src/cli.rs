@@ -570,16 +570,8 @@ impl Generator {
         // sense, meaning that we need to include `"foo": null` rather than
         // omitting the field. Back to the first hand: is that last point just
         // a serde issue rather than an interface one?
-        let maybe_inner_type =
-            if let typify::TypeDetails::Option(inner_type_id) = prop_type.details() {
-                let inner_type = self.type_space.get_type(&inner_type_id).unwrap();
-                Some(inner_type)
-            } else {
-                None
-            };
-
-        let prop_type = if let Some(inner_type) = maybe_inner_type {
-            inner_type
+        let prop_type = if let typify::TypeDetails::Option(inner_type_id) = prop_type.details() {
+            self.type_space.get_type(&inner_type_id).unwrap()
         } else {
             prop_type
         };
@@ -599,67 +591,63 @@ impl Generator {
             } else {
                 Volitionality::Optional
             };
-            let parser = if matches!(cli_arg_kind, CliBodyArgKind::BinaryFile) {
-                let help = description.as_ref().map(|description| {
-                    quote! {
-                        .help(#description)
-                    }
-                });
-                let required = match volitionality {
-                    Volitionality::Optional => quote! { .required(false) },
-                    Volitionality::Required => quote! { .required(true) },
-                    Volitionality::RequiredIfNoBody => {
-                        quote! { .required_unless_present("json-body") }
-                    }
-                };
-                quote! {
-                    ::clap::Arg::new(#prop_name)
-                        .long(#prop_name)
-                        .value_name("FILE")
-                        .value_parser(::clap::value_parser!(std::path::PathBuf))
-                        #required
-                        #help
-                }
-            } else {
-                clap_arg(
-                    &prop_name,
-                    volitionality,
-                    &description.map(str::to_string),
-                    &prop_type,
-                )
-            };
-
             let prop_fn = format_ident!("{}", sanitize(name, Case::Snake));
             let prop_type_ident = prop_type.ident();
-            let consumer = if matches!(cli_arg_kind, CliBodyArgKind::BinaryFile) {
-                quote! {
-                    if let Some(value) =
-                        matches.get_one::<std::path::PathBuf>(
-                            #prop_name,
-                        )
-                    {
-                        let value = ::bytes::Bytes::from(
-                            std::fs::read(value)
-                                .with_context(|| format!("failed to read {}", value.display()))?
-                        );
-                        request = request.body_map(|body| {
-                            body.#prop_fn(value.clone())
-                        })
-                    }
+
+            let (parser, consumer) = match cli_arg_kind {
+                CliBodyArgKind::BinaryFile => {
+                    let help = description.as_ref().map(|description| {
+                        quote! {
+                            .help(#description)
+                        }
+                    });
+                    let required = clap_required(volitionality);
+                    let parser = quote! {
+                        ::clap::Arg::new(#prop_name)
+                            .long(#prop_name)
+                            .value_name("FILE")
+                            .value_parser(::clap::value_parser!(std::path::PathBuf))
+                            #required
+                            #help
+                    };
+                    let consumer = quote! {
+                        if let Some(value) =
+                            matches.get_one::<std::path::PathBuf>(
+                                #prop_name,
+                            )
+                        {
+                            let value = ::bytes::Bytes::from(
+                                std::fs::read(value)
+                                    .with_context(|| format!("failed to read {}", value.display()))?
+                            );
+                            request = request.body_map(|body| {
+                                body.#prop_fn(value.clone())
+                            })
+                        }
+                    };
+                    (parser, consumer)
                 }
-            } else {
-                quote! {
-                    if let Some(value) =
-                        matches.get_one::<#prop_type_ident>(
-                            #prop_name,
-                        )
-                    {
-                        // clone here in case the arg type
-                        // doesn't impl TryFrom<&T>
-                        request = request.body_map(|body| {
-                            body.#prop_fn(value.clone())
-                        })
-                    }
+                CliBodyArgKind::Scalar => {
+                    let parser = clap_arg(
+                        &prop_name,
+                        volitionality,
+                        &description.map(str::to_string),
+                        &prop_type,
+                    );
+                    let consumer = quote! {
+                        if let Some(value) =
+                            matches.get_one::<#prop_type_ident>(
+                                #prop_name,
+                            )
+                        {
+                            // clone here in case the arg type
+                            // doesn't impl TryFrom<&T>
+                            request = request.body_map(|body| {
+                                body.#prop_fn(value.clone())
+                            })
+                        }
+                    };
+                    (parser, consumer)
                 }
             };
             args.add_arg(prop_name, CliArg { parser, consumer })
@@ -689,6 +677,16 @@ enum Volitionality {
 enum CliBodyArgKind {
     Scalar,
     BinaryFile,
+}
+
+fn clap_required(volitionality: Volitionality) -> TokenStream {
+    match volitionality {
+        Volitionality::Optional => quote! { .required(false) },
+        Volitionality::Required => quote! { .required(true) },
+        Volitionality::RequiredIfNoBody => {
+            quote! { .required_unless_present("json-body") }
+        }
+    }
 }
 
 fn clap_arg(
@@ -746,13 +744,7 @@ fn clap_arg(
         }
     };
 
-    let required = match volitionality {
-        Volitionality::Optional => quote! { .required(false) },
-        Volitionality::Required => quote! { .required(true) },
-        Volitionality::RequiredIfNoBody => {
-            quote! { .required_unless_present("json-body") }
-        }
-    };
+    let required = clap_required(volitionality);
 
     quote! {
         ::clap::Arg::new(#arg_name)
